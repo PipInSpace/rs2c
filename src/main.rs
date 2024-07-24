@@ -1,9 +1,9 @@
 use syn::{Expr, Pat, Stmt, Type};
 
 const SOURCE: &str = "
-fn sq(y: f32, argument: &mut [u32; 3]) -> f32 {
-    let x: [f32; 3] = [y, 1.0, argument[0]];
-    let t = change(&mut x);
+fn foo(y: f32, argument: &mut [u32; 3]) -> f32 {
+    let x: [f32; 3] = [y, 1.0, argument[0] as f32];
+    let t: f32 = bar(&mut x);
     return x[0] * t;
 }";
 
@@ -258,7 +258,7 @@ fn convert_expr(expr: Expr) -> String {
             }
         },
         Expr::Reference(refexp) => {
-            format!("&{}", convert_expr(*refexp.expr))
+            format!("{}", convert_expr(*refexp.expr))
         },
         Expr::Repeat(_) => todo!(),
         Expr::Return(rtrnexp) => {

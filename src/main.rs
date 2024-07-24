@@ -116,7 +116,7 @@ fn convert_primitive_type(rs_type: String) -> Result<String, String> {
         "i16" => Ok("short".to_string()),
         "i32" => Ok("int".to_string()),
         "i64" => Ok("long".to_string()),
-        "u8"  => Ok("uchar".to_string()),
+        "u8"  => Ok("unsigned char".to_string()),
         "u16" => Ok("ushort".to_string()),
         "u32" => Ok("uint".to_string()),
         "u64" => Ok("ulong".to_string()),

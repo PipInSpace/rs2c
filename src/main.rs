@@ -57,7 +57,7 @@ fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Ve
 fn main() {
     println!("Converting Rust function to C function:\n");
     let c = convert_to_c_function(SOURCE);
-    println!("{}", c)
+    println!("{}", indent_c(c))
 }
 
 /// Transpiles a single Rust function provided in `source` to C
@@ -176,7 +176,7 @@ fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
 // Rust and C to build C source code from a Rust syntax tree. Basic language features will become available over time, but complex
 // features like generics or macros will likely not be possible without actual code analysis.
 //
-/// Recursively transpiles Expressions from Rust to C
+/// Recursively transpiles Expressions from Rust to C. Returns a source string.
 fn convert_expr(expr: Expr) -> String {
     match expr {
         Expr::Array(arr) => {
@@ -286,16 +286,18 @@ fn convert_expr(expr: Expr) -> String {
                 syn::Lit::ByteStr(_) => todo!(),
                 syn::Lit::CStr(_) => todo!(),
                 syn::Lit::Byte(_) => todo!(),
-                syn::Lit::Char(_) => todo!(),
+                syn::Lit::Char(cl) => {
+                    format!("'{}'", cl.value())
+                },
                 syn::Lit::Int(il) => {
                     il.to_string().split(char::is_alphabetic).next().expect("msg").to_string()
                 },
                 syn::Lit::Float(fl) => {
-                    let mut f = fl.to_string().split(char::is_alphabetic).next().expect("msg").to_string();
-                    f += "f";
-                    f
+                    format!("{}f", fl.to_string().split(char::is_alphabetic).next().expect("msg"))
                 },
-                syn::Lit::Bool(_) => todo!(),
+                syn::Lit::Bool(bl) => {
+                    bl.value.to_string()
+                },
                 syn::Lit::Verbatim(_) => todo!(),
                 _ => todo!(),
             }
@@ -431,4 +433,23 @@ fn convert_type(ty: Type) -> String {
         Type::Verbatim(_) => todo!(),
         _ => todo!(),
     }
+}
+
+/// Provides indentation for C code
+fn indent_c(source: String) -> String {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut new_source = String::new(); 
+    let mut ind = 0;
+    for line in lines {
+        if line.trim().chars().next() == Some('}') {
+            for _ in 1..ind {new_source += "\t";}
+        } else {
+            for _ in 0..ind {new_source += "\t";}
+        }
+        new_source += line;
+        new_source += "\n";
+        ind += line.matches('{').count();
+        ind -= line.matches('}').count()
+    }
+    new_source
 }

@@ -2,22 +2,57 @@ use syn::{Expr, Pat, Stmt, Type};
 
 const SOURCE: &str = "
 fn foo(y: f32, argument: &mut [u32; 3]) -> f32 {
-    let x: [f32; 3] = [y, 1.0, argument[0] as f32];
-    let t: f32 = bar(&mut x);
-    return x[0] * t;
+    if n>=def_N {
+        return;
+    } else if n>=def_N { 
+        print();
+    } else {
+        return;
+    }
+    // let x: [f32; 3] = [y, 1.0, argument[0] as f32];
+    // let t: f32 = bar(&mut x);
+    // return x[0] * t;
 }";
 
 const SOURCE2: &str = "
-fn len_sq_i32(v: [i32; 3]) -> f32 {
-    let mut x = 0;
-    for d in 0..v[2] {
-        x += (x + 1);
+fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Vec<u8>, t: u64, fx: f32, fy: f32, fz: f32) {
+    let n: u32 = get_global_id(0); // n = x+(y+z*Ny)*Nx
+    if n>=def_N as u32 || is_halo(n) { return; } // don't execute update_fields() on halo
+    let flagsn: u8 = flags[n];
+    let flagsn_bo: u8=flagsn&TYPE_BO;
+    let flagsn_su: u8=flagsn&TYPE_SU; // extract boundary and surface flags
+    if flagsn_bo==TYPE_S || flagsn_su==TYPE_G { return; } // don't update fields for boundary or gas lattice points
+
+    let mut j: [u32; def_velocity_set]; // neighbor indices
+    neighbors(n, &mut j); // calculate neighbor indices
+    let mut fhn: [f32; def_velocity_set]; // local DDFs
+    load_f(n, &mut fhn, &fi, &j, t); // perform streaming (part 2)
+
+    // calculate local density and velocity for collision
+    let mut rhon: f32;
+    let mut uxn: f32;
+    let mut uyn: f32;
+    let mut uzn: f32;
+    calculate_rho_u(fhn, &mut rhon, &mut uxn, &mut uyn, &uzn); // calculate density and velocity fields from fi
+    let fxn: f32 = fx;
+    let fyn: f32 = fy;
+    let fzn: f32 = fz; // force starts as constant volume force, can be modified before call of calculate_forcing_terms(...)
+    {
+        uxn = clamp(uxn, -def_c, def_c); // limit velocity (for stability purposes)
+        uyn = clamp(uyn, -def_c, def_c); // force term: F*dt/(2*rho)
+        uzn = clamp(uzn, -def_c, def_c);
     }
-}";
+
+    rho[               n] = rhon; // update density field
+    u[                 n] = uxn; // update velocity field
+    u[    def_N+n as u64] = uyn;
+    u[2  *def_N+n as u64] = uzn;
+} // update_fields()";
 
 fn main() {
     println!("Converting Rust function to C function:\n");
     let c = convert_function(SOURCE);
+    println!("{}", c)
 }
 
 fn convert_function(source: &str) -> String {
@@ -26,10 +61,7 @@ fn convert_function(source: &str) -> String {
     let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
     println!("{:#?}", expr);
     let c_block = format!("{}", convert_expr(expr));
-    println!("{} {}", c_sig, c_block);
-
-    
-    String::new()
+    format!("{} {}", c_sig, c_block)
 }
 
 fn get_fn_block(source: &str) -> String {
@@ -84,7 +116,7 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     if san.chars().nth(0) == Some('&') { // Is reference, use pointer
         if san.contains('[') { // Type is fixed lenght array ([u32; 3]), use C pointer
             let rs_buftype  = san.split('[').nth(1).expect("").split(';').nth(0).expect("Should contain value").to_string();
-            match convert_primitive_type(rs_buftype) {
+            match convert_to_c_primitive_type(rs_buftype) {
                 Ok(c_type) => return Ok(format!("{}*", c_type)),
                 Err(_) => return Err(format!("Error converting Rust vector \"{}\" to C pointer", rs_type)),
             }
@@ -94,7 +126,7 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
             let rs_arr  = san.split('[').nth(1).expect("");
             let rs_arrtype = rs_arr.split(';').nth(0).expect("Should contain value").to_string();
             let rs_arrlen = rs_arr.split(';').nth(1).expect("msg").split(']').nth(0).expect("msg").to_string();
-            match convert_primitive_type(rs_arrtype) {
+            match convert_to_c_primitive_type(rs_arrtype) {
                 Ok(c_type) => return Ok(format!("{} arrname[{}]", c_type, rs_arrlen)),
                 Err(_) => return Err(format!("Error converting Rust vector \"{}\" to C pointer", rs_type)),
             }
@@ -102,24 +134,24 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     }
     if san.contains('[') { // Type is fixed lenght array ([u32; 3]), use C pointer
         let rs_buftype  = san.replace("[", "").split(';').nth(0).expect("Should contain value").to_string();
-        match convert_primitive_type(rs_buftype) {
+        match convert_to_c_primitive_type(rs_buftype) {
             Ok(c_type) => return Ok(format!("{}*", c_type)),
             Err(_) => return Err(format!("Error converting Rust vector \"{}\" to C pointer", rs_type)),
         }
     }
-    convert_primitive_type(san)
+    convert_to_c_primitive_type(san)
 }
 
-fn convert_primitive_type(rs_type: String) -> Result<String, String> {
+fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
     match rs_type.as_ref() {
         "i8"  => Ok("char".to_string()),
         "i16" => Ok("short".to_string()),
         "i32" => Ok("int".to_string()),
         "i64" => Ok("long".to_string()),
         "u8"  => Ok("unsigned char".to_string()),
-        "u16" => Ok("ushort".to_string()),
-        "u32" => Ok("uint".to_string()),
-        "u64" => Ok("ulong".to_string()),
+        "u16" => Ok("unsigned short".to_string()),
+        "u32" => Ok("unsigned int".to_string()),
+        "u64" => Ok("unsigned long".to_string()),
         "f16" => Ok("half".to_string()),
         "f32" => Ok("float".to_string()),
         "f64" => Ok("double".to_string()),
@@ -140,7 +172,9 @@ fn convert_expr(expr: Expr) -> String {
 
             format!("{{{}}}", elems)
         },
-        Expr::Assign(_) => todo!(),
+        Expr::Assign(assexp) => {
+            format!("{} = {}", convert_expr(*assexp.left), convert_expr(*assexp.right))
+        },
         Expr::Async(_) => todo!(),
         Expr::Await(_) => todo!(),
         Expr::Binary(binexp) => {
@@ -213,7 +247,16 @@ fn convert_expr(expr: Expr) -> String {
             format!("for ({}) {{\n{}}}", range, stmts)
         },
         Expr::Group(_) => todo!(),
-        Expr::If(_) => todo!(),
+        Expr::If(ifexp) => {
+            let mut stmts = String::new();
+            for stmt in ifexp.then_branch.stmts {
+                stmts += &convert_stmt(stmt);
+            }
+            match ifexp.else_branch {
+                Some(branch) => format!("if ({}) {{\n{}}} else {}", convert_expr(*ifexp.cond), stmts, convert_expr(*branch.1)),
+                None => format!("if ({}) {{{}}}", convert_expr(*ifexp.cond), stmts),
+            }
+        },
         Expr::Index(ind) => {
             format!("{}[{}]", convert_expr(*ind.expr), convert_expr(*ind.index))
         },
@@ -271,7 +314,15 @@ fn convert_expr(expr: Expr) -> String {
         Expr::Try(_) => todo!(),
         Expr::TryBlock(_) => todo!(),
         Expr::Tuple(_) => todo!(),
-        Expr::Unary(_) => todo!(),
+        Expr::Unary(unexp) => {
+            let op = match unexp.op {
+                syn::UnOp::Deref(_) => "*",
+                syn::UnOp::Not(_) => "!",
+                syn::UnOp::Neg(_) => "-",
+                _ => todo!(),
+            };
+            format!("{}{}", op, convert_expr(*unexp.expr))
+        },
         Expr::Unsafe(_) => todo!(),
         Expr::Verbatim(_) => todo!(),
         Expr::While(_) => todo!(),
@@ -317,11 +368,17 @@ fn convert_pat(pat: Pat) -> String {
         Pat::TupleStruct(_) => todo!(),
         Pat::Type(ptype) => {
             let ctype = convert_to_c_type(&convert_type(*ptype.ty)).unwrap();
-            let ident = convert_pat(*ptype.pat);
+            let ident = convert_pat(*ptype.pat.clone());
+            let is_const = match *ptype.pat {
+                Pat::Ident(i) => i.mutability.is_none(),
+                _ => true,
+            };
+            let mut consts = String::new();
+            if is_const { consts += "const "; }
             if ctype.contains("arrname") {
-                ctype.replace("arrname", &ident)
+                format!("{}{}", consts, ctype.replace("arrname", &ident))
             } else {
-                format!("{} {}", ctype, ident)
+                format!("{}{} {}", consts, ctype, ident)
             }
         },
         Pat::Verbatim(_) => todo!(),

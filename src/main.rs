@@ -1,20 +1,24 @@
 use syn::{Expr, Pat, Stmt, Type};
 
+#[allow(dead_code)]
+/// Simple Rust Code for verification
 const SOURCE: &str = "
 fn foo(y: f32, argument: &mut [u32; 3]) -> f32 {
     if n>=def_N {
         return;
-    } else if n>=def_N { 
-        print();
+    } else if n = 2{ 
+        barfoo();
     } else {
-        return;
+        foobar();
     }
-    // let x: [f32; 3] = [y, 1.0, argument[0] as f32];
-    // let t: f32 = bar(&mut x);
-    // return x[0] * t;
+    let x: [f32; 3] = [y, 1.0, argument[0] as f32];
+    let t: f32 = bar(&mut x);
+    return x[0] * t;
 }";
 
 #[allow(dead_code)]
+/// Complex Rust code for verification 
+/// Taken from https://github.com/PipInSpace/IonSolver/blob/main/src/kernels/sim_kernels.cl
 const SOURCE2: &str = "
 fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Vec<u8>, t: u64, fx: f32, fy: f32, fz: f32) {
     let n: u32 = get_global_id(0); // n = x+(y+z*Ny)*Nx
@@ -52,29 +56,34 @@ fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Ve
 
 fn main() {
     println!("Converting Rust function to C function:\n");
-    let c = convert_function(SOURCE);
+    let c = convert_to_c_function(SOURCE);
     println!("{}", c)
 }
 
-fn convert_function(source: &str) -> String {
+/// Transpiles a single Rust function provided in `source` to C
+fn convert_to_c_function(source: &str) -> String {
     let c_sig = convert_signature(get_fn_signature(source));
     
     let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
     println!("{:#?}", expr);
     let c_block = convert_expr(expr).to_string();
+
     format!("{} {}", c_sig, c_block)
 }
 
+/// Returns the function block from a Rust function
 fn get_fn_block(source: &str) -> String {
     let block = "{".to_string() + source.split_once('{').expect("msg").1;
     block
 }
 
+/// Returns the function signature from a Rust function
 fn get_fn_signature(source: &str) -> String {
     let signature = source.split('{').next().expect("String should contain signature").trim();
     signature.to_string()
 }
 
+/// Converts a Rust function signature into a C function signature
 fn convert_signature(sig: String) -> String {
     let c_return_type = match sig.split("->").nth(1) {
         Some(rs_return_type) => convert_to_c_type(rs_return_type).unwrap(),
@@ -104,6 +113,7 @@ fn convert_signature(sig: String) -> String {
 }
 
 #[rustfmt::skip]
+/// Converts Rust data types into C data types. Compatible with Vectors, Arrays and primitive data types.
 fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     //return Ok("");
     let san = rs_type.replace([' ', '\t'], "");
@@ -143,6 +153,7 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     convert_to_c_primitive_type(san)
 }
 
+/// Converts Rust primitive data types into C primitive data types.
 fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
     match rs_type.as_ref() {
         "i8"  => Ok("char".to_string()),
@@ -160,6 +171,12 @@ fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
     }
 }
 
+// -- Recursively traverse syntax tree and build C source code --
+// Far from all Rust functionality is implemented currently (see todo!()s). This transpiler uses the language similarities between 
+// Rust and C to build C source code from a Rust syntax tree. Basic language features will become available over time, but complex
+// features like generics or macros will likely not be possible without actual code analysis.
+//
+/// Recursively transpiles Expressions from Rust to C
 fn convert_expr(expr: Expr) -> String {
     match expr {
         Expr::Array(arr) => {
@@ -333,6 +350,7 @@ fn convert_expr(expr: Expr) -> String {
     //String::new()
 }
 
+/// Recursively transpiles Statements from Rust to C
 fn convert_stmt(stmt: Stmt) -> String {
     match stmt {
         syn::Stmt::Local(local) => {
@@ -349,6 +367,7 @@ fn convert_stmt(stmt: Stmt) -> String {
     }
 }
 
+/// Recursively transpiles Patterns from Rust to C
 fn convert_pat(pat: Pat) -> String {
     match pat {
         Pat::Const(_) => todo!(),
@@ -388,6 +407,7 @@ fn convert_pat(pat: Pat) -> String {
     }
 }
 
+/// Recursively transpiles Types from Rust to C
 fn convert_type(ty: Type) -> String {
     match ty {
         Type::Array(arr) => {

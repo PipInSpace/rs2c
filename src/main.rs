@@ -14,6 +14,7 @@ fn foo(y: f32, argument: &mut [u32; 3]) -> f32 {
     // return x[0] * t;
 }";
 
+#[allow(dead_code)]
 const SOURCE2: &str = "
 fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Vec<u8>, t: u64, fx: f32, fy: f32, fz: f32) {
     let n: u32 = get_global_id(0); // n = x+(y+z*Ny)*Nx
@@ -60,17 +61,17 @@ fn convert_function(source: &str) -> String {
     
     let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
     println!("{:#?}", expr);
-    let c_block = format!("{}", convert_expr(expr));
+    let c_block = convert_expr(expr).to_string();
     format!("{} {}", c_sig, c_block)
 }
 
 fn get_fn_block(source: &str) -> String {
-    let block = "{".to_string() + source.split_once("{").expect("msg").1;
+    let block = "{".to_string() + source.split_once('{').expect("msg").1;
     block
 }
 
 fn get_fn_signature(source: &str) -> String {
-    let signature = source.split("{").nth(0).expect("String should contain signature").trim();
+    let signature = source.split('{').next().expect("String should contain signature").trim();
     signature.to_string()
 }
 
@@ -79,11 +80,11 @@ fn convert_signature(sig: String) -> String {
         Some(rs_return_type) => convert_to_c_type(rs_return_type).unwrap(),
         None => "void".to_string(),
     };
-    let fn_name: String = sig.split('(').nth(0).expect("msg").replace("fn", "").replace([' ', '\t', '\n'], "");
-    let args: Vec<&str> = sig.split('(').nth(1).expect("msg").split(')').nth(0).expect("msg").split(',').collect();
+    let fn_name: String = sig.split('(').next().expect("msg").replace("fn", "").replace([' ', '\t', '\n'], "");
+    let args: Vec<&str> = sig.split('(').nth(1).expect("msg").split(')').next().expect("msg").split(',').collect();
     let mut c_args = String::new();
     for (i, arg) in args.iter().enumerate() {
-        let name = arg.split(':').nth(0).expect("msg").trim().to_string();
+        let name = arg.split(':').next().expect("msg").trim().to_string();
         let is_const = !arg.split(':').nth(1).expect("msg").contains("mut ");
         let c_type = convert_to_c_type(&arg.split(':').nth(1).expect("msg").replace("mut ", "")).unwrap();
         if is_const {
@@ -107,15 +108,15 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     //return Ok("");
     let san = rs_type.replace([' ', '\t'], "");
     if san.contains("Vec<") { // Type is a Vector, use C pointer
-        let rs_buftype  = san.split_once("Vec<").expect("msg").1.split(">").nth(0).expect("msg").to_string();
+        let rs_buftype  = san.split_once("Vec<").expect("msg").1.split('>').next().expect("msg").to_string();
         match convert_to_c_type(&rs_buftype) {
             Ok(c_type) => return Ok(format!("{}*", c_type)),
             Err(_) => return Err(format!("Error converting Rust vector \"{}\" to C pointer", rs_type)),
         }
     }
-    if san.chars().nth(0) == Some('&') { // Is reference, use pointer
+    if san.starts_with('&') { // Is reference, use pointer
         if san.contains('[') { // Type is fixed lenght array ([u32; 3]), use C pointer
-            let rs_buftype  = san.split('[').nth(1).expect("").split(';').nth(0).expect("Should contain value").to_string();
+            let rs_buftype  = san.split('[').nth(1).expect("").split(';').next().expect("Should contain value").to_string();
             match convert_to_c_primitive_type(rs_buftype) {
                 Ok(c_type) => return Ok(format!("{}*", c_type)),
                 Err(_) => return Err(format!("Error converting Rust vector \"{}\" to C pointer", rs_type)),
@@ -124,8 +125,8 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     } else { // Moves value
         if san.contains('[') { // Type is fixed lenght array ([u32; 3]), use C pointer
             let rs_arr  = san.split('[').nth(1).expect("");
-            let rs_arrtype = rs_arr.split(';').nth(0).expect("Should contain value").to_string();
-            let rs_arrlen = rs_arr.split(';').nth(1).expect("msg").split(']').nth(0).expect("msg").to_string();
+            let rs_arrtype = rs_arr.split(';').next().expect("Should contain value").to_string();
+            let rs_arrlen = rs_arr.split(';').nth(1).expect("msg").split(']').next().expect("msg").to_string();
             match convert_to_c_primitive_type(rs_arrtype) {
                 Ok(c_type) => return Ok(format!("{} arrname[{}]", c_type, rs_arrlen)),
                 Err(_) => return Err(format!("Error converting Rust vector \"{}\" to C pointer", rs_type)),
@@ -133,7 +134,7 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
         }
     }
     if san.contains('[') { // Type is fixed lenght array ([u32; 3]), use C pointer
-        let rs_buftype  = san.replace("[", "").split(';').nth(0).expect("Should contain value").to_string();
+        let rs_buftype  = san.replace('[', "").split(';').next().expect("Should contain value").to_string();
         match convert_to_c_primitive_type(rs_buftype) {
             Ok(c_type) => return Ok(format!("{}*", c_type)),
             Err(_) => return Err(format!("Error converting Rust vector \"{}\" to C pointer", rs_type)),
@@ -217,7 +218,7 @@ fn convert_expr(expr: Expr) -> String {
             for stmt in block.block.stmts {
                 stmts += &convert_stmt(stmt);
             }
-            return format!("{{\n{}}}", stmts);
+            format!("{{\n{}}}", stmts)
         },
         Expr::Break(_) => todo!(),
         Expr::Call(callexp) => {
@@ -270,10 +271,10 @@ fn convert_expr(expr: Expr) -> String {
                 syn::Lit::Byte(_) => todo!(),
                 syn::Lit::Char(_) => todo!(),
                 syn::Lit::Int(il) => {
-                    il.to_string().split(char::is_alphabetic).nth(0).expect("msg").to_string()
+                    il.to_string().split(char::is_alphabetic).next().expect("msg").to_string()
                 },
                 syn::Lit::Float(fl) => {
-                    let mut f = fl.to_string().split(char::is_alphabetic).nth(0).expect("msg").to_string();
+                    let mut f = fl.to_string().split(char::is_alphabetic).next().expect("msg").to_string();
                     f += "f";
                     f
                 },
@@ -301,7 +302,7 @@ fn convert_expr(expr: Expr) -> String {
             }
         },
         Expr::Reference(refexp) => {
-            format!("{}", convert_expr(*refexp.expr))
+            convert_expr(*refexp.expr).to_string()
         },
         Expr::Repeat(_) => todo!(),
         Expr::Return(rtrnexp) => {

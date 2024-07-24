@@ -19,3 +19,16 @@ float foo(const float y, uint* argument) {
     return x[0] * t;
 }
 ```
+
+## Features
+
+- Function signature transpiling (without generics)
+- Variable initialisation (Type annotation required)
+- Array initialisation
+- Type translation
+- Reference translation
+- `for`-loops with ranges
+
+## Goals
+
+This project is under development to facilitate a crate that allows annotated Rust code to be compiled and executed via OpenCL.

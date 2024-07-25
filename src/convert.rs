@@ -1,163 +1,8 @@
 use syn::{Expr, Pat, Stmt, Type};
 
-#[allow(dead_code)]
-/// Simple Rust Code for verification
-const SOURCE: &str = "
-fn foo(y: f32, argument: &mut [u32; 3]) -> f32 {
-    if y>=10.0 {
-        return y.clamp(12.0_f32, 11.0_f32);
-    } else if y == 2.0_f64 as f32 { 
-        barfoo(&mut argument);
-    } else {
-        foobar();
-    }
-    let z: [u32; 4] = [2; 4];
-    let mut x: [f32; 3] = [y, 1.0, argument[0] as f32];
-    let t: f32 = bar(&mut x);
-    return x[0] * t * z[2];
-}";
-
-#[allow(dead_code)]
-/// Complex Rust code for verification 
-/// Taken from https://github.com/PipInSpace/IonSolver/blob/main/src/kernels/sim_kernels.cl
-const SOURCE2: &str = "
-fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Vec<u8>, t: u64, fx: f32, fy: f32, fz: f32) {
-    let n: u32 = get_global_id(0); // n = x+(y+z*Ny)*Nx
-    if n>=def_N as u32 || is_halo(n) { return; } // don't execute update_fields() on halo
-    let flagsn: u8 = flags[n as usize];
-    let flagsn_bo: u8=flagsn&TYPE_BO;
-    let flagsn_su: u8=flagsn&TYPE_SU; // extract boundary and surface flags
-    if flagsn_bo==TYPE_S || flagsn_su==TYPE_G { return; } // don't update fields for boundary or gas lattice points
-
-    let mut j: [u32; def_velocity_set] = [0; def_velocity_set]; // neighbor indices
-    neighbors(n, &mut j); // calculate neighbor indices
-    let mut fhn: [f32; def_velocity_set] = [0.0; def_velocity_set]; // local DDFs
-    load_f(n, &mut fhn, &fi, &j, t); // perform streaming (part 2)
-
-    // calculate local density and velocity for collision
-    let mut rhon: f32 = 0.0;
-    let mut uxn: f32 = 0.0;
-    let mut uyn: f32 = 0.0;
-    let mut uzn: f32 = 0.0;
-    calculate_rho_u(&fhn, &mut rhon, &mut uxn, &mut uyn, &mut uzn); // calculate density and velocity fields from fi
-    {
-        uxn = uxn.clamp(-def_c, def_c); // limit velocity (for stability purposes)
-        uyn = uyn.clamp(-def_c, def_c); // force term: F*dt/(2*rho)
-        uzn = uzn.clamp(-def_c, def_c);
-    }
-
-    rho[      n as usize] = rhon; // update density field
-    u[        n as usize] = uxn; // update velocity field
-    u[  def_N+n as usize] = uyn;
-    u[2*def_N+n as usize] = uzn;
-} // update_fields()";
-
-fn main() {
-    println!("Converting Rust function to C function:\n");
-    let c = convert_to_c_function(SOURCE);
-    println!("{}", indent_c(c));
-    let cl = convert_to_cl_kernel(SOURCE2);
-    println!("{}", indent_c(cl));
-}
-
-/// Transpiles a single Rust function provided in `source` to C
-fn convert_to_c_function(source: &str) -> String {
-    let c_sig = convert_signature(get_fn_signature(source));
-    
-    let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
-    //println!("{:#?}", expr);
-    let c_block = convert_expr(expr).to_string();
-
-    format!("{} {}", c_sig, c_block)
-}
-
-fn convert_to_cl_kernel(source: &str) -> String {
-    let cl_sig = convert_cl_signature(get_fn_signature(source)).unwrap();
-
-    let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
-    //println!("{:#?}", expr);
-    let c_block = convert_expr(expr).to_string();
-
-    format!("{} {}", cl_sig, c_block)
-}
-
-/// Returns the function block from a Rust function
-fn get_fn_block(source: &str) -> String {
-    let block = "{".to_string() + source.split_once('{').expect("msg").1;
-    block
-}
-
-/// Returns the function signature from a Rust function
-fn get_fn_signature(source: &str) -> String {
-    let signature = source.split('{').next().expect("String should contain signature").trim();
-    signature.to_string()
-}
-
-/// Converts a Rust function signature into a C function signature
-fn convert_signature(sig: String) -> String {
-    let c_return_type = match sig.split("->").nth(1) {
-        Some(rs_return_type) => convert_to_c_type(rs_return_type).unwrap(),
-        None => "void".to_string(),
-    };
-    let fn_name: String = sig.split('(').next().expect("msg").replace("fn", "").replace([' ', '\t', '\n'], "");
-    let args: Vec<&str> = sig.split('(').nth(1).expect("msg").split(')').next().expect("msg").split(',').collect();
-    let mut c_args = String::new();
-    for (i, arg) in args.iter().enumerate() {
-        let name = arg.split(':').next().expect("msg").trim().to_string();
-        let is_const = !arg.split(':').nth(1).expect("msg").contains("mut ");
-        let c_type = convert_to_c_type(&arg.split(':').nth(1).expect("msg").replace("mut ", "")).unwrap();
-        if is_const {
-            c_args += "const ";
-        }
-        if c_type.contains("arrname") {
-            c_args += &c_type.replace("arrname", &name);
-        } else {
-            c_args += &format!("{} {}", c_type, name);
-        }
-        if i != args.len()-1 {
-            c_args += ", ";
-        }
-    }
-    let c_sig = format!("{} {}({})", c_return_type, fn_name, c_args);
-    c_sig
-}
-
-/// Converts a Rust function signature into an OpenCL kernel function signature
-fn convert_cl_signature(sig: String) -> Result<String, String> {
-    match sig.split("->").nth(1) {
-        Some(_) => {return Err("Kernel functions can't return values.".to_string());},
-        None => {},
-    };
-    let fn_name: String = sig.split('(').next().expect("msg").replace("fn", "").trim().to_string();
-    let args: Vec<&str> = sig.split('(').nth(1).expect("msg").split(')').next().expect("msg").split(',').collect();
-    let mut c_args = String::new();
-    for (i, arg) in args.iter().enumerate() {
-        let name = arg.split(':').next().expect("msg").trim().to_string();
-        let is_const = !arg.split(':').nth(1).expect("msg").contains("mut ");
-        let c_type = convert_to_c_type(&arg.split(':').nth(1).expect("msg").replace("mut ", "")).unwrap();
-        let is_buffer = c_type.contains('*');
-        if is_const {
-            c_args += "const ";
-        }
-        if is_buffer {
-            c_args += "global ";
-        }
-        if c_type.contains("arrname") {
-            c_args += &c_type.replace("arrname", &name);
-        } else {
-            c_args += &format!("{} {}", c_type, name);
-        }
-        if i != args.len()-1 {
-            c_args += ", ";
-        }
-    }
-    let c_sig = format!("__kernel void {}({})", fn_name, c_args);
-    Ok(c_sig)
-}
-
 #[rustfmt::skip]
 /// Converts Rust data types into C data types. Compatible with Vectors, Arrays and primitive data types.
-fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
+pub fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     //return Ok("");
     let san = rs_type.replace([' ', '\t'], "");
     if san.contains("Vec<") { // Type is a Vector, use C pointer
@@ -197,7 +42,7 @@ fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
 }
 
 /// Converts Rust primitive data types into C primitive data types.
-fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
+pub fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
     match rs_type.as_ref() {
         "i8"  => Ok("char".to_string()),
         "i16" => Ok("short".to_string()),
@@ -222,7 +67,7 @@ fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
 // features like generics or macros will likely not be possible without actual code analysis.
 //
 /// Recursively transpiles Expressions from Rust to C. Returns a source string.
-fn convert_expr(expr: Expr) -> String {
+pub fn convert_expr(expr: Expr) -> String {
     match expr {
         Expr::Array(arr) => {
             let mut elems = String::new();
@@ -423,7 +268,7 @@ fn convert_expr(expr: Expr) -> String {
 }
 
 /// Recursively transpiles Statements from Rust to C
-fn convert_stmt(stmt: Stmt) -> String {
+pub fn convert_stmt(stmt: Stmt) -> String {
     match stmt {
         syn::Stmt::Local(local) => {
             match local.init {
@@ -443,7 +288,7 @@ fn convert_stmt(stmt: Stmt) -> String {
 }
 
 /// Recursively transpiles Patterns from Rust to C
-fn convert_pat(pat: Pat) -> String {
+pub fn convert_pat(pat: Pat) -> String {
     match pat {
         Pat::Const(_) => todo!(),
         Pat::Ident(ident) => {
@@ -483,7 +328,7 @@ fn convert_pat(pat: Pat) -> String {
 }
 
 /// Recursively transpiles Types from Rust to C
-fn convert_type(ty: Type) -> String {
+pub fn convert_type(ty: Type) -> String {
     match ty {
         Type::Array(arr) => {
            format!("[{}; {}]", convert_type(*arr.elem), convert_expr(arr.len))
@@ -506,23 +351,4 @@ fn convert_type(ty: Type) -> String {
         Type::Verbatim(_) => todo!(),
         _ => todo!(),
     }
-}
-
-/// Provides indentation for C source code
-fn indent_c(source: String) -> String {
-    let lines: Vec<&str> = source.split('\n').collect();
-    let mut new_source = String::new(); 
-    let mut ind = 0;
-    for line in lines {
-        if line.trim().chars().next() == Some('}') {
-            for _ in 1..ind {new_source += "\t";}
-        } else {
-            for _ in 0..ind {new_source += "\t";}
-        }
-        new_source += line;
-        new_source += "\n";
-        ind += line.matches('{').count();
-        ind -= line.matches('}').count()
-    }
-    new_source
 }

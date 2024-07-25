@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "r2c"
+name = "rs2c"
 version = "0.0.1"
 dependencies = [
  "syn",

@@ -95,7 +95,7 @@ const CL_KERNEL_CL: &str = "__kernel void update_fields(const global float* fi, 
 
 #[test]
 fn c_test() {
-    let c = indent_c(convert_to_c_function(SIMPLE_RS));
+    let c = indent_c(&rs_to_c_function(SIMPLE_RS));
     println!("{}", c);
     assert_eq!(c, SIMPLE_C);
 }
@@ -103,7 +103,7 @@ fn c_test() {
 #[test]
 #[cfg(feature = "opencl")]
 fn cl_test() {
-    let cl = indent_c(opencl::convert_to_cl_kernel(CL_KERNEL_RS));
+    let cl = indent_c(&opencl::rs_to_cl_kernel(CL_KERNEL_RS));
     println!("{}", cl);
     assert_eq!(cl, CL_KERNEL_CL);
 }

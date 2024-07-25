@@ -1,9 +1,11 @@
-# R2C
+# rs2c
 
 A very WIP Rust to C transpiler. Far from all Rust functionality is implemented currently (see todo!()s).
 This transpiler uses the language similarities between Rust and C to build C source code from a Rust
 syntax tree. Basic language features will become available over time, but complex features like generics
 or macros will likely not be possible without actual code analysis.
+
+rs2c includes an optional feature `opencl` to transpile Rust functions into OpenCL kernels.
 
 A simple Rust function translated into C: 
 

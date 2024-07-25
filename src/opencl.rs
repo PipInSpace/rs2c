@@ -1,8 +1,13 @@
+//! # opencl
+//! 
+//! The `opencl` module is an optional module that implements transpiling Rust functions into OpenCL
+//! kernel functions. 
+
 use crate::*;
 
 /// Transpiles a single Rust function provided in `source` into an OpenCL kernel function
-pub fn convert_to_cl_kernel(source: &str) -> String {
-    let cl_sig = convert_to_cl_signature(get_fn_signature(source)).unwrap();
+pub fn rs_to_cl_kernel(source: &str) -> String {
+    let cl_sig = rs_to_cl_signature(get_fn_signature(source)).unwrap();
 
     let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
     //println!("{:#?}", expr);
@@ -12,7 +17,7 @@ pub fn convert_to_cl_kernel(source: &str) -> String {
 }
 
 /// Converts a Rust function signature into an OpenCL kernel function signature
-fn convert_to_cl_signature(sig: String) -> Result<String, String> {
+fn rs_to_cl_signature(sig: String) -> Result<String, String> {
     match sig.split("->").nth(1) {
         Some(_) => {return Err("Kernel functions can't return values.".to_string());},
         None => {},

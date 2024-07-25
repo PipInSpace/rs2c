@@ -20,8 +20,8 @@ pub mod opencl;
 use convert::*;
 
 /// Transpiles a single Rust function provided in `source` to C
-pub fn convert_to_c_function(source: &str) -> String {
-    let c_sig = convert_to_c_signature(get_fn_signature(source));
+pub fn rs_to_c_function(source: &str) -> String {
+    let c_sig = rs_to_c_signature(&get_fn_signature(source));
     
     let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
     //println!("{:#?}", expr);
@@ -31,7 +31,7 @@ pub fn convert_to_c_function(source: &str) -> String {
 }
 
 /// Converts a Rust function signature into a C function signature
-pub fn convert_to_c_signature(sig: String) -> String {
+fn rs_to_c_signature(sig: &str) -> String {
     let c_return_type = match sig.split("->").nth(1) {
         Some(rs_return_type) => convert_to_c_type(rs_return_type).unwrap(),
         None => "void".to_string(),
@@ -71,8 +71,8 @@ fn get_fn_signature(source: &str) -> String {
     signature.to_string()
 }
 
-/// Provides indentation for C source code
-pub fn indent_c(source: String) -> String {
+/// Provides basic indentation for C source code
+pub fn indent_c(source: &str) -> String {
     let lines: Vec<&str> = source.split('\n').collect();
     let mut new_source = String::new(); 
     let mut ind = 0;

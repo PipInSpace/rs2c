@@ -62,9 +62,8 @@ pub fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
 }
 
 // -- Recursively traverse syntax tree and build C source code --
-// Far from all Rust functionality is implemented currently (see todo!()s). This transpiler uses the language similarities between 
-// Rust and C to build C source code from a Rust syntax tree. Basic language features will become available over time, but complex
-// features like generics or macros will likely not be possible without actual code analysis.
+// The syn crate is used to build a Rust syntax tree from a Rust function's source code block. This syntax tree
+// is traversed and a C source code is build by recursively interpreting Rust syntax.
 //
 /// Recursively transpiles Expressions from Rust to C. Returns a source string.
 pub fn convert_expr(expr: Expr) -> String {

@@ -4,17 +4,17 @@ use syn::{Expr, Pat, Stmt, Type};
 /// Simple Rust Code for verification
 const SOURCE: &str = "
 fn foo(y: f32, argument: &mut [u32; 3]) -> f32 {
-    //if y>=def_N {
-    //    return 1.9;
-    //} else if y == 2.0 { 
-    //    barfoo();
-    //} else {
-    //    foobar();
-    //}
-    let z: f32 = 3.0.clamp(1.0, -1.0);
-    //let mut x: [f32; 3] = [y, 1.0, argument[0] as f32];
-    //let t: f32 = bar(&mut x);
-    return x[0] * t;
+    if y>=10.0 {
+        return y.clamp(12.0_f32, 11.0_f32);
+    } else if y == 2.0_f64 as f32 { 
+        barfoo(&mut argument);
+    } else {
+        foobar();
+    }
+    let z: [u32; 4] = [2; 4];
+    let mut x: [f32; 3] = [y, 1.0, argument[0] as f32];
+    let t: f32 = bar(&mut x);
+    return x[0] * t * z[2];
 }";
 
 #[allow(dead_code)]
@@ -29,9 +29,10 @@ fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Ve
     let flagsn_su: u8=flagsn&TYPE_SU; // extract boundary and surface flags
     if flagsn_bo==TYPE_S || flagsn_su==TYPE_G { return; } // don't update fields for boundary or gas lattice points
 
-    let j: [u32; def_velocity_set] = neighbors(n); // calculate neighbor indices
-     // calculate neighbor indices
-    let fhn: [f32; def_velocity_set] = load_f(n, &fi, &j, t); // local DDFs, perform streaming (part 2)
+    let mut j: [u32; def_velocity_set] = [0; def_velocity_set]; // neighbor indices
+    neighbors(n, &mut j); // calculate neighbor indices
+    let mut fhn: [f32; def_velocity_set] = [0.0; def_velocity_set]; // local DDFs
+    load_f(n, &mut fhn, &fi, &j, t); // perform streaming (part 2)
 
     // calculate local density and velocity for collision
     let mut rhon: f32 = 0.0;
@@ -337,7 +338,15 @@ fn convert_expr(expr: Expr) -> String {
                     il.to_string().split(char::is_alphabetic).next().expect("msg").to_string()
                 },
                 syn::Lit::Float(fl) => {
-                    format!("{}f", fl.to_string().split(char::is_alphabetic).next().expect("msg"))
+                    let val = fl.to_string().split(char::is_alphabetic).next().expect("msg").split('_').next().expect("msg").to_string();
+                    if fl.to_string().contains("f32") { // C float
+                        format!("{}f", val)
+                    } else if fl.to_string().contains("f128") { // C long double
+                        format!("{}l", val)
+                    } else {
+                        format!("{}", val)
+                    }
+                    
                 },
                 syn::Lit::Bool(bl) => {
                     bl.value.to_string()
@@ -352,7 +361,7 @@ fn convert_expr(expr: Expr) -> String {
         Expr::MethodCall(methexp) => { // Method calls are handled by passing the receiver as the first C function arg
             let mut args = String::new();
             args += &convert_expr(*methexp.receiver);
-            for (i, arg) in methexp.args.iter().enumerate() {
+            for arg in methexp.args {
                 args += ", ";
                 args += &convert_expr(arg.clone());
             }
@@ -375,7 +384,9 @@ fn convert_expr(expr: Expr) -> String {
         Expr::Reference(refexp) => {
             convert_expr(*refexp.expr).to_string()
         },
-        Expr::Repeat(_) => todo!(),
+        Expr::Repeat(repexp) => {
+            format!("{{{}}}", convert_expr(*repexp.expr))
+        },
         Expr::Return(rtrnexp) => {
             match rtrnexp.expr {
                 Some(expr) => format!("return {}", convert_expr(*expr)),
@@ -497,7 +508,7 @@ fn convert_type(ty: Type) -> String {
     }
 }
 
-/// Provides indentation for C code
+/// Provides indentation for C source code
 fn indent_c(source: String) -> String {
     let lines: Vec<&str> = source.split('\n').collect();
     let mut new_source = String::new(); 

@@ -2,6 +2,12 @@
 name = "r2c"
 version = "0.0.1"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "A (very WIP) Rust to C transpiler"
+repository = "https://github.com/PipInSpace/rs2c"
+readme = "README.md"
+categories = ["compilers", "development-tools::ffi"]
+keywords = ["transpiler", "C", "rust_to_c"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

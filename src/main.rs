@@ -4,15 +4,16 @@ use syn::{Expr, Pat, Stmt, Type};
 /// Simple Rust Code for verification
 const SOURCE: &str = "
 fn foo(y: f32, argument: &mut [u32; 3]) -> f32 {
-    if n>=def_N {
-        return;
-    } else if n = 2{ 
-        barfoo();
-    } else {
-        foobar();
-    }
-    let x: [f32; 3] = [y, 1.0, argument[0] as f32];
-    let t: f32 = bar(&mut x);
+    //if y>=def_N {
+    //    return 1.9;
+    //} else if y == 2.0 { 
+    //    barfoo();
+    //} else {
+    //    foobar();
+    //}
+    let z: f32 = 3.0.clamp(1.0, -1.0);
+    //let mut x: [f32; 3] = [y, 1.0, argument[0] as f32];
+    //let t: f32 = bar(&mut x);
     return x[0] * t;
 }";
 
@@ -23,41 +24,39 @@ const SOURCE2: &str = "
 fn update_fields(fi: &Vec<f32>, rho: &mut Vec<f32>, u: &mut Vec<f32>, flags: &Vec<u8>, t: u64, fx: f32, fy: f32, fz: f32) {
     let n: u32 = get_global_id(0); // n = x+(y+z*Ny)*Nx
     if n>=def_N as u32 || is_halo(n) { return; } // don't execute update_fields() on halo
-    let flagsn: u8 = flags[n];
+    let flagsn: u8 = flags[n as usize];
     let flagsn_bo: u8=flagsn&TYPE_BO;
     let flagsn_su: u8=flagsn&TYPE_SU; // extract boundary and surface flags
     if flagsn_bo==TYPE_S || flagsn_su==TYPE_G { return; } // don't update fields for boundary or gas lattice points
 
-    let mut j: [u32; def_velocity_set]; // neighbor indices
-    neighbors(n, &mut j); // calculate neighbor indices
-    let mut fhn: [f32; def_velocity_set]; // local DDFs
-    load_f(n, &mut fhn, &fi, &j, t); // perform streaming (part 2)
+    let j: [u32; def_velocity_set] = neighbors(n); // calculate neighbor indices
+     // calculate neighbor indices
+    let fhn: [f32; def_velocity_set] = load_f(n, &fi, &j, t); // local DDFs, perform streaming (part 2)
 
     // calculate local density and velocity for collision
-    let mut rhon: f32;
-    let mut uxn: f32;
-    let mut uyn: f32;
-    let mut uzn: f32;
-    calculate_rho_u(fhn, &mut rhon, &mut uxn, &mut uyn, &uzn); // calculate density and velocity fields from fi
-    let fxn: f32 = fx;
-    let fyn: f32 = fy;
-    let fzn: f32 = fz; // force starts as constant volume force, can be modified before call of calculate_forcing_terms(...)
+    let mut rhon: f32 = 0.0;
+    let mut uxn: f32 = 0.0;
+    let mut uyn: f32 = 0.0;
+    let mut uzn: f32 = 0.0;
+    calculate_rho_u(&fhn, &mut rhon, &mut uxn, &mut uyn, &mut uzn); // calculate density and velocity fields from fi
     {
-        uxn = clamp(uxn, -def_c, def_c); // limit velocity (for stability purposes)
-        uyn = clamp(uyn, -def_c, def_c); // force term: F*dt/(2*rho)
-        uzn = clamp(uzn, -def_c, def_c);
+        uxn = uxn.clamp(-def_c, def_c); // limit velocity (for stability purposes)
+        uyn = uyn.clamp(-def_c, def_c); // force term: F*dt/(2*rho)
+        uzn = uzn.clamp(-def_c, def_c);
     }
 
-    rho[               n] = rhon; // update density field
-    u[                 n] = uxn; // update velocity field
-    u[    def_N+n as u64] = uyn;
-    u[2  *def_N+n as u64] = uzn;
+    rho[      n as usize] = rhon; // update density field
+    u[        n as usize] = uxn; // update velocity field
+    u[  def_N+n as usize] = uyn;
+    u[2*def_N+n as usize] = uzn;
 } // update_fields()";
 
 fn main() {
     println!("Converting Rust function to C function:\n");
     let c = convert_to_c_function(SOURCE);
-    println!("{}", indent_c(c))
+    println!("{}", indent_c(c));
+    let cl = convert_to_cl_kernel(SOURCE2);
+    println!("{}", indent_c(cl));
 }
 
 /// Transpiles a single Rust function provided in `source` to C
@@ -65,10 +64,20 @@ fn convert_to_c_function(source: &str) -> String {
     let c_sig = convert_signature(get_fn_signature(source));
     
     let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
-    println!("{:#?}", expr);
+    //println!("{:#?}", expr);
     let c_block = convert_expr(expr).to_string();
 
     format!("{} {}", c_sig, c_block)
+}
+
+fn convert_to_cl_kernel(source: &str) -> String {
+    let cl_sig = convert_cl_signature(get_fn_signature(source)).unwrap();
+
+    let expr = syn::parse_str::<Expr>(&get_fn_block(source)).unwrap();
+    //println!("{:#?}", expr);
+    let c_block = convert_expr(expr).to_string();
+
+    format!("{} {}", cl_sig, c_block)
 }
 
 /// Returns the function block from a Rust function
@@ -110,6 +119,39 @@ fn convert_signature(sig: String) -> String {
     }
     let c_sig = format!("{} {}({})", c_return_type, fn_name, c_args);
     c_sig
+}
+
+/// Converts a Rust function signature into an OpenCL kernel function signature
+fn convert_cl_signature(sig: String) -> Result<String, String> {
+    match sig.split("->").nth(1) {
+        Some(_) => {return Err("Kernel functions can't return values.".to_string());},
+        None => {},
+    };
+    let fn_name: String = sig.split('(').next().expect("msg").replace("fn", "").trim().to_string();
+    let args: Vec<&str> = sig.split('(').nth(1).expect("msg").split(')').next().expect("msg").split(',').collect();
+    let mut c_args = String::new();
+    for (i, arg) in args.iter().enumerate() {
+        let name = arg.split(':').next().expect("msg").trim().to_string();
+        let is_const = !arg.split(':').nth(1).expect("msg").contains("mut ");
+        let c_type = convert_to_c_type(&arg.split(':').nth(1).expect("msg").replace("mut ", "")).unwrap();
+        let is_buffer = c_type.contains('*');
+        if is_const {
+            c_args += "const ";
+        }
+        if is_buffer {
+            c_args += "global ";
+        }
+        if c_type.contains("arrname") {
+            c_args += &c_type.replace("arrname", &name);
+        } else {
+            c_args += &format!("{} {}", c_type, name);
+        }
+        if i != args.len()-1 {
+            c_args += ", ";
+        }
+    }
+    let c_sig = format!("__kernel void {}({})", fn_name, c_args);
+    Ok(c_sig)
 }
 
 #[rustfmt::skip]
@@ -167,6 +209,8 @@ fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
         "f16" => Ok("half".to_string()),
         "f32" => Ok("float".to_string()),
         "f64" => Ok("double".to_string()),
+        "isize" => Ok("long".to_string()),
+        "usize" => Ok("unsigned long".to_string()),
         _ => Err(format!("Error converting Rust primitive type \"{}\" to C type", rs_type))
     }
 }
@@ -272,7 +316,7 @@ fn convert_expr(expr: Expr) -> String {
             }
             match ifexp.else_branch {
                 Some(branch) => format!("if ({}) {{\n{}}} else {}", convert_expr(*ifexp.cond), stmts, convert_expr(*branch.1)),
-                None => format!("if ({}) {{{}}}", convert_expr(*ifexp.cond), stmts),
+                None => format!("if ({}) {{\n{}}}", convert_expr(*ifexp.cond), stmts),
             }
         },
         Expr::Index(ind) => {
@@ -305,7 +349,15 @@ fn convert_expr(expr: Expr) -> String {
         Expr::Loop(_) => todo!(),
         Expr::Macro(_) => todo!(),
         Expr::Match(_) => todo!(),
-        Expr::MethodCall(_) => todo!(),
+        Expr::MethodCall(methexp) => { // Method calls are handled by passing the receiver as the first C function arg
+            let mut args = String::new();
+            args += &convert_expr(*methexp.receiver);
+            for (i, arg) in methexp.args.iter().enumerate() {
+                args += ", ";
+                args += &convert_expr(arg.clone());
+            }
+            format!("{}({})", methexp.method.to_string(), args)
+        },
         Expr::Paren(parexp) => {
             format!("({})", convert_expr(*parexp.expr))
         },
@@ -345,7 +397,14 @@ fn convert_expr(expr: Expr) -> String {
         },
         Expr::Unsafe(_) => todo!(),
         Expr::Verbatim(_) => todo!(),
-        Expr::While(_) => todo!(),
+        Expr::While(whileexp) => {
+            let cond: String = convert_expr(*whileexp.cond);
+            let mut stmts = String::new();
+            for stmt in whileexp.body.stmts {
+                stmts += &convert_stmt(stmt);
+            }
+            format!("while ({}) {{\n{}}}", cond, stmts)
+        },
         Expr::Yield(_) => todo!(),
         _ => todo!(),
     }
@@ -362,8 +421,11 @@ fn convert_stmt(stmt: Stmt) -> String {
             }
         },
         syn::Stmt::Item(_) => todo!(),
-        syn::Stmt::Expr(expr, _) => {
-            format!("{};\n", convert_expr(expr))
+        syn::Stmt::Expr(expr, semi) => {
+            match semi {
+                Some(_) => format!("{};\n", convert_expr(expr)),
+                None => format!("{}\n", convert_expr(expr)),
+            }
         },
         syn::Stmt::Macro(_) => todo!(),
     }

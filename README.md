@@ -1,3 +1,7 @@
+#### [Documentation](https://docs.rs/rs2c) | [Change Log](https://github.com/pipinspace/rs2c/blob/main/CHANGELOG.md)
+
+[![](https://img.shields.io/crates/v/rs2c.svg)](https://crates.io/crates/rs2c) [![](https://docs.rs/rs2c/badge.svg)](https://docs.rs/rs2c)
+
 # rs2c
 
 A very WIP Rust to C transpiler. Far from all Rust functionality is implemented currently (see todo!()s).

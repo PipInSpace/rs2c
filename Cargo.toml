@@ -16,3 +16,7 @@ syn = { version = "2.0.72", features = ["clone-impls", "derive", "extra-traits",
 
 [features]
 opencl = []
+
+[package.metadata.docs.rs]
+# Build documentation with all features
+all-features = true

@@ -37,22 +37,25 @@ fn rs_to_c_signature(sig: &str) -> String {
         None => "void".to_string(),
     };
     let fn_name: String = sig.split('(').next().expect("msg").replace("fn", "").replace([' ', '\t', '\n'], "");
-    let args: Vec<&str> = sig.split('(').nth(1).expect("msg").split(')').next().expect("msg").split(',').collect();
+    let args: Vec<&str> = sig.split('(').nth(1).expect("msg1").split(')').next().expect("msg2").split(',').collect();
     let mut c_args = String::new();
+    println!("{}", args.len());
     for (i, arg) in args.iter().enumerate() {
-        let name = arg.split(':').next().expect("msg").trim().to_string();
-        let is_const = !arg.split(':').nth(1).expect("msg").contains("mut ");
-        let c_type = convert_to_c_type(&arg.split(':').nth(1).expect("msg").replace("mut ", "")).unwrap();
-        if is_const {
-            c_args += "const ";
-        }
-        if c_type.contains("arrname") {
-            c_args += &c_type.replace("arrname", &name);
-        } else {
-            c_args += &format!("{} {}", c_type, name);
-        }
-        if i != args.len()-1 {
-            c_args += ", ";
+        if arg.trim() != "" {
+            let name = arg.split(':').next().expect("rs_to_c_signature arg name").trim().to_string();
+            let is_const = !arg.split(':').nth(1).expect("msg").contains("mut ");
+            let c_type = convert_to_c_type(&arg.split(':').nth(1).expect("msg").replace("mut ", "")).unwrap();
+            if is_const {
+                c_args += "const ";
+            }
+            if c_type.contains("arrname") {
+                c_args += &c_type.replace("arrname", &name);
+            } else {
+                c_args += &format!("{} {}", c_type, name);
+            }
+            if i != args.len()-1 {
+                c_args += ", ";
+            }
         }
     }
     let c_sig = format!("{} {}({})", c_return_type, fn_name, c_args);

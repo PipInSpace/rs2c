@@ -4,7 +4,7 @@ use syn::{Expr, Pat, Stmt, Type};
 /// Converts Rust data types into C data types. Compatible with Vectors, Arrays and primitive data types.
 pub fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
     //return Ok("");
-    let san = rs_type.replace([' ', '\t'], "");
+    let san = rs_type.replace([' ', '\t', '\n'], "");
     if san.contains("Vec<") { // Type is a Vector, use C pointer
         let rs_buftype  = san.split_once("Vec<").expect("msg").1.split('>').next().expect("msg").to_string();
         match convert_to_c_type(&rs_buftype) {
@@ -43,7 +43,7 @@ pub fn convert_to_c_type(rs_type: &str) -> Result<String, String> {
 
 /// Converts Rust primitive data types into C primitive data types.
 pub fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
-    match rs_type.as_ref() {
+    match rs_type.replace('&', "").as_ref() {
         "i8"  => Ok("char".to_string()),
         "i16" => Ok("short".to_string()),
         "i32" => Ok("int".to_string()),
@@ -57,6 +57,7 @@ pub fn convert_to_c_primitive_type(rs_type: String) -> Result<String, String> {
         "f64" => Ok("double".to_string()),
         "isize" => Ok("long".to_string()),
         "usize" => Ok("unsigned long".to_string()),
+        "bool" => Ok("bool".to_string()),
         _ => Err(format!("Error converting Rust primitive type \"{}\" to C type", rs_type))
     }
 }

@@ -200,7 +200,13 @@ pub fn convert_expr(expr: Expr) -> String {
                 _ => todo!(),
             }
         },
-        Expr::Loop(_) => todo!(),
+        Expr::Loop(loopexp) => {
+            let mut stmts = String::new();
+            for stmt in loopexp.body.stmts {
+                stmts += &convert_stmt(stmt);
+            }
+            format!("while (1) {{\n{}}}", stmts)
+        },
         Expr::Macro(_) => todo!(),
         Expr::Match(_) => todo!(),
         Expr::MethodCall(methexp) => { // Method calls are handled by passing the receiver as the first C function arg
